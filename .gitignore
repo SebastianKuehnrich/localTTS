@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Audio-Dateien (generiert, nicht im Repo noetig)
+*.wav
+*.mp3
+
+# Generierte Bilder
+mel_spectrogram.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# API Keys
+.env
