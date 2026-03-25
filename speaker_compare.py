@@ -24,7 +24,11 @@ PARQUET_URL = "https://huggingface.co/api/datasets/Matthijs/cmu-arctic-xvectors/
 
 def load_xvectors_from_parquet() -> pd.DataFrame:
     """Laedt die Speaker-Embeddings direkt aus der Parquet-Datei (ohne datasets-Library)."""
-    df = pd.read_parquet(PARQUET_URL)
+    import io
+
+    response = requests.get(PARQUET_URL, allow_redirects=True, timeout=60)
+    response.raise_for_status()
+    df = pd.read_parquet(io.BytesIO(response.content))
     return df
 
 

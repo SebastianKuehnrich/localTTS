@@ -189,3 +189,113 @@ durch EnCodec diskretisiert werden, bevor Bark damit arbeiten kann).
 | **Trainiert auf** | LibriTTS (Englisch, Sprache) | Multilingual Audio + Text | Unbekannt, vermutlich gross | Text-Korpora |
 | **Staerke** | Schnell, stabil, leichtgewichtig | Expressiv, multilingual, Emotionen | Hohe Qualitaet, einfache API | Textverstaendnis, Reasoning |
 | **Schwaeche** | Nur Englisch, nur Sprache, kuenstlich | Langsam, braucht GPU, instabil | Kostet Geld, kein Offline, Black Box | Kein Audio-Output |
+
+---
+
+## 4. Whisper Architektur (Speech-to-Text)
+
+### Whisper Architektur-Diagramm
+
+```
+WHISPER (Encoder-Decoder, Speech-to-Text)
+
+Audio-Datei (WAV/MP3)
+    |
+    v
+[Mel-Spectrogram Extraktion]   <-- 80 Frequency Bins, 30s Fenster
+    |
+    v
+[Encoder: 12x Transformer Blocks]
+    |  - Self-Attention auf Audio-Features
+    |  - Lernt akustische Repraesentationen
+    v
+Audio-Features (Kontext-Vektoren)
+    |
+    v
+[Decoder: 12x Transformer Blocks]
+    |  - Self-Attention auf bisherige Text-Tokens
+    |  - Cross-Attention auf Audio-Features   <-- Decoder "hoert" das Audio
+    |  - Generiert Text Token fuer Token
+    v
+Text-Ausgabe ("Hallo, wie geht es dir?")
+```
+
+### Mel-Spectrogram als Bruecke zwischen TTS und STT
+
+Das Mel-Spectrogram ist das gemeinsame Datenformat. Es kommt in BEIDEN Richtungen vor:
+
+```
+TTS-Ausgang:     Text --> Encoder --> Decoder --> [MEL-SPECTROGRAM] --> Vocoder --> Audio
+                                                        |
+                                                   SELBES FORMAT
+                                                        |
+Whisper-Eingang: Audio --> [MEL-SPECTROGRAM] --> Encoder --> Decoder --> Text
+```
+
+### Cross-Attention: TTS vs STT
+
+Gleicher Mechanismus, umgekehrte Daten:
+
+- **SpeechT5 (TTS):** Query=Audio-Position, Key/Value=Text-Features
+  → Decoder schaut auf Text, um Audio zu erzeugen
+- **Whisper (STT):** Query=Text-Position, Key/Value=Audio-Features
+  → Decoder schaut auf Audio, um Text zu erzeugen
+
+---
+
+## 5. Vollstaendige Voice Conversation Pipeline
+
+```
+FULL VOICE CONVERSATION PIPELINE
+=================================
+
+Mikrofon
+  |
+  v
+WAV Audio (16kHz, mono)
+  |
+  v
++------------------------------------------+
+| WHISPER STT (Encoder-Decoder)            |
+| Audio --> Mel-Spec --> Encoder --> Decoder|
+| Output: Text                             |
++------------------------------------------+
+  |
+  v
+User-Text ("Was ist Machine Learning?")
+  |
+  v
++------------------------------------------+
+| CLAUDE AGENT (Decoder-Only)              |
+| Text --> [Decoder Transformer Blocks]    |
+| Autoregressive Token-Generierung         |
+| Output: Text                             |
++------------------------------------------+
+  |
+  v
+Agent-Text ("Machine Learning ist...")
+  |
+  v
++------------------------------------------+
+| TTS ENGINE (Encoder-Decoder ODER         |
+|             Decoder-Only)                |
+| SpeechT5: Enc-Dec mit Cross-Attention    |
+| Bark: Decoder-Only mit Audio-Tokens      |
+| OpenAI TTS: API (Architektur unbekannt)  |
+| Output: Audio                            |
++------------------------------------------+
+  |
+  v
+Lautsprecher / Kopfhoerer
+```
+
+---
+
+## 6. Drei Architekturen in einer Pipeline
+
+| Komponente | Architektur | Input | Output | Cross-Attention? |
+|------------|-------------|-------|--------|-------------------|
+| Whisper | Encoder-Decoder | Audio (Mel-Spec) | Text-Tokens | Ja: Decoder auf Audio |
+| Claude | Decoder-Only | Text-Tokens | Text-Tokens | Nein (nur Self-Attention) |
+| SpeechT5 | Encoder-Decoder | Text-Tokens | Audio (Mel-Spec) | Ja: Decoder auf Text |
+| Bark | Decoder-Only | Text+Audio-Tokens | Audio-Tokens | Nein (nur Self-Attention) |
