@@ -26,12 +26,7 @@
             justify-content: space-between;
         }
 
-        header h1 {
-            font-size: 18px;
-            font-weight: 600;
-            color: #fafafa;
-        }
-
+        header h1 { font-size: 18px; font-weight: 600; color: #fafafa; }
         header h1 span { color: #8b5cf6; }
 
         .status-badge {
@@ -43,8 +38,7 @@
         }
 
         .status-dot {
-            width: 8px;
-            height: 8px;
+            width: 8px; height: 8px;
             border-radius: 50%;
             background: #ef4444;
         }
@@ -73,7 +67,6 @@
 
         /* Main Content */
         .content { flex: 1; display: flex; overflow: hidden; }
-
         .tab-panel { display: none; flex: 1; flex-direction: column; }
         .tab-panel.active { display: flex; }
 
@@ -120,6 +113,20 @@
             padding: 4px;
         }
 
+        /* Audio player in message */
+        .message audio {
+            margin-top: 8px;
+            width: 100%;
+            height: 36px;
+            border-radius: 8px;
+        }
+
+        .voice-label {
+            font-size: 11px;
+            color: #71717a;
+            margin-top: 4px;
+        }
+
         /* Confidence Badge */
         .confidence-badge {
             display: inline-flex;
@@ -137,8 +144,7 @@
         .confidence-badge.low { background: #450a0a; color: #f87171; }
 
         .confidence-bar {
-            width: 60px;
-            height: 4px;
+            width: 60px; height: 4px;
             background: #3f3f46;
             border-radius: 2px;
             overflow: hidden;
@@ -161,10 +167,7 @@
             border-top: 1px solid #27272a;
         }
 
-        .input-row {
-            display: flex;
-            gap: 8px;
-        }
+        .input-row { display: flex; gap: 8px; align-items: center; }
 
         .chat-input {
             flex: 1;
@@ -179,13 +182,9 @@
         }
 
         .chat-input:focus { border-color: #7c3aed; }
+        .chat-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .chat-input:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .send-btn {
+        .send-btn, .mic-btn {
             padding: 12px 20px;
             background: #7c3aed;
             color: white;
@@ -194,11 +193,33 @@
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
-        .send-btn:hover { background: #6d28d9; }
-        .send-btn:disabled { background: #3f3f46; cursor: not-allowed; }
+        .send-btn:hover, .mic-btn:hover { background: #6d28d9; }
+        .send-btn:disabled, .mic-btn:disabled { background: #3f3f46; cursor: not-allowed; }
+
+        .mic-btn { padding: 12px 16px; font-size: 18px; position: relative; }
+        .mic-btn.recording {
+            background: #dc2626;
+            animation: pulse-record 1.5s infinite;
+        }
+
+        @keyframes pulse-record {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+        }
+
+        .tts-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #71717a;
+            margin-top: 8px;
+        }
+
+        .tts-toggle input[type="checkbox"] { accent-color: #7c3aed; }
 
         /* Confidence Tester Panel */
         .confidence-panel {
@@ -242,25 +263,14 @@
 
         .confidence-result.visible { display: block; }
 
-        .score-display {
-            text-align: center;
-            margin-bottom: 20px;
-        }
+        .score-display { text-align: center; margin-bottom: 20px; }
 
-        .score-number {
-            font-size: 48px;
-            font-weight: 700;
-        }
-
+        .score-number { font-size: 48px; font-weight: 700; }
         .score-number.high { color: #4ade80; }
         .score-number.medium { color: #fb923c; }
         .score-number.low { color: #f87171; }
 
-        .score-label {
-            font-size: 14px;
-            color: #71717a;
-            margin-top: 4px;
-        }
+        .score-label { font-size: 14px; color: #71717a; margin-top: 4px; }
 
         .detail-grid {
             display: grid;
@@ -269,22 +279,9 @@
             margin-top: 16px;
         }
 
-        .detail-card {
-            padding: 12px;
-            background: #27272a;
-            border-radius: 8px;
-        }
-
-        .detail-card .label {
-            font-size: 12px;
-            color: #71717a;
-            margin-bottom: 4px;
-        }
-
-        .detail-card .value {
-            font-size: 18px;
-            font-weight: 600;
-        }
+        .detail-card { padding: 12px; background: #27272a; border-radius: 8px; }
+        .detail-card .label { font-size: 12px; color: #71717a; margin-bottom: 4px; }
+        .detail-card .value { font-size: 18px; font-weight: 600; }
 
         /* Health Panel */
         .health-panel {
@@ -325,8 +322,7 @@
         /* Streaming cursor */
         .streaming-cursor {
             display: inline-block;
-            width: 2px;
-            height: 16px;
+            width: 2px; height: 16px;
             background: #8b5cf6;
             animation: blink 0.8s infinite;
             vertical-align: text-bottom;
@@ -347,7 +343,7 @@
 </head>
 <body>
     <header>
-        <h1><span>Voice Agent</span> API</h1>
+        <h1><span>Voice Agent</span></h1>
         <div class="status-badge">
             <div class="status-dot" id="statusDot"></div>
             <span id="statusText">Verbinde...</span>
@@ -364,13 +360,20 @@
         <!-- Chat Tab -->
         <div class="tab-panel active" id="tab-chat">
             <div class="chat-messages" id="chatMessages">
-                <div class="message system">Sende eine Nachricht um das Gespraech zu starten.</div>
+                <div class="message system">Tippe eine Nachricht oder druecke das Mikrofon zum Sprechen.</div>
             </div>
             <div class="chat-input-area">
                 <div class="input-row">
+                    <button class="mic-btn" id="micBtn" title="Mikrofon">&#127908;</button>
                     <input type="text" class="chat-input" id="chatInput"
-                           placeholder="Nachricht eingeben..." autocomplete="off">
+                           placeholder="Nachricht eingeben oder Mikrofon nutzen..." autocomplete="off">
                     <button class="send-btn" id="sendBtn">Senden</button>
+                </div>
+                <div class="tts-toggle">
+                    <input type="checkbox" id="ttsEnabled" checked>
+                    <label for="ttsEnabled">Antwort vorlesen (TTS)</label>
+                    <input type="checkbox" id="autoPlay" checked style="margin-left: 12px">
+                    <label for="autoPlay">Automatisch abspielen</label>
                 </div>
             </div>
         </div>
@@ -386,7 +389,7 @@
                 <div class="confidence-result" id="confResult">
                     <div class="score-display">
                         <div class="score-number" id="confScore">0.00</div>
-                        <div class="score-label" id="confLabel">—</div>
+                        <div class="score-label" id="confLabel">&mdash;</div>
                     </div>
                     <div class="detail-grid">
                         <div class="detail-card">
@@ -426,7 +429,13 @@
         const chatMessages = document.getElementById('chatMessages');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
+        const micBtn = document.getElementById('micBtn');
+        const ttsEnabled = document.getElementById('ttsEnabled');
+        const autoPlay = document.getElementById('autoPlay');
         const history = [];
+
+        let mediaRecorder = null;
+        let isRecording = false;
 
         // ── Tabs ──────────────────────────────────────────
         document.querySelectorAll('.tab').forEach(tab => {
@@ -458,7 +467,124 @@
         document.getElementById('healthRefresh').addEventListener('click', checkHealth);
         checkHealth();
 
-        // ── Chat (Streaming) ──────────────────────────────
+        // ── Microphone Recording ──────────────────────────
+        micBtn.addEventListener('click', toggleRecording);
+
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                const chunks = [];
+
+                mediaRecorder.ondataavailable = (e) => { chunks.push(e.data); };
+
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    await transcribeAudio(blob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                micBtn.classList.add('recording');
+                micBtn.title = 'Aufnahme stoppen';
+                chatInput.placeholder = 'Aufnahme laeuft...';
+            } catch (e) {
+                addMessage('system', 'Mikrofon-Zugriff verweigert. Bitte Berechtigung erteilen.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            isRecording = false;
+            micBtn.classList.remove('recording');
+            micBtn.title = 'Mikrofon';
+            chatInput.placeholder = 'Nachricht eingeben oder Mikrofon nutzen...';
+        }
+
+        async function transcribeAudio(blob) {
+            setInputState(false);
+            addMessage('system', 'Transkribiere Audio...');
+
+            try {
+                const formData = new FormData();
+                formData.append('audio', blob, 'recording.webm');
+
+                const r = await fetch(API + '/stt', { method: 'POST', body: formData });
+
+                if (!r.ok) {
+                    const err = await r.json();
+                    throw new Error(err.detail || 'STT Fehler');
+                }
+
+                const data = await r.json();
+                const text = data.text.trim();
+
+                // Remove "Transkribiere" message
+                const systemMsgs = chatMessages.querySelectorAll('.message.system');
+                const last = systemMsgs[systemMsgs.length - 1];
+                if (last && last.textContent.includes('Transkribiere')) last.remove();
+
+                if (text) {
+                    chatInput.value = text;
+                    await sendMessage();
+                } else {
+                    addMessage('system', 'Keine Sprache erkannt. Nochmal versuchen.');
+                    setInputState(true);
+                }
+            } catch (e) {
+                addMessage('system', 'STT Fehler: ' + e.message);
+                setInputState(true);
+            }
+        }
+
+        // ── TTS Playback ──────────────────────────────────
+        async function speakText(text, messageDiv) {
+            if (!ttsEnabled.checked || !text.trim()) return;
+
+            try {
+                const r = await fetch(API + '/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                if (!r.ok) return;
+
+                const audioBlob = await r.blob();
+                const audioUrl = URL.createObjectURL(audioBlob);
+
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.src = audioUrl;
+                messageDiv.appendChild(audio);
+
+                const label = document.createElement('div');
+                label.className = 'voice-label';
+                label.textContent = 'TTS: nova';
+                messageDiv.appendChild(label);
+
+                if (autoPlay.checked) {
+                    audio.play().catch(() => {});
+                }
+
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (e) {
+                // TTS fehlgeschlagen — still ignorieren
+            }
+        }
+
+        // ── Chat ──────────────────────────────────────────
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = 'message ' + role;
@@ -487,17 +613,21 @@
             messageDiv.appendChild(badge);
         }
 
+        function setInputState(enabled) {
+            chatInput.disabled = !enabled;
+            sendBtn.disabled = !enabled;
+            micBtn.disabled = !enabled;
+        }
+
         async function sendMessage() {
             const text = chatInput.value.trim();
             if (!text) return;
 
             chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
+            setInputState(false);
 
             addMessage('user', text);
 
-            // Create assistant message with streaming cursor
             const assistantDiv = addMessage('assistant', '');
             const textSpan = assistantDiv.querySelector('.text');
             const cursor = document.createElement('span');
@@ -536,6 +666,8 @@
                         } else if (data.type === 'done') {
                             cursor.remove();
                             addConfidenceBadge(assistantDiv, data.confidence);
+                            // TTS der kompletten Antwort
+                            await speakText(fullText, assistantDiv);
                         } else if (data.type === 'error') {
                             cursor.remove();
                             textSpan.textContent = 'Fehler: ' + data.message;
@@ -543,7 +675,6 @@
                     }
                 }
 
-                // Update history
                 history.push({ role: 'user', content: text });
                 history.push({ role: 'assistant', content: fullText });
 
@@ -552,8 +683,7 @@
                 textSpan.textContent = 'Verbindungsfehler: ' + e.message;
             }
 
-            chatInput.disabled = false;
-            sendBtn.disabled = false;
+            setInputState(true);
             chatInput.focus();
         }
 

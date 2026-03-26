@@ -27,3 +27,4 @@ matplotlib>=3.9.0
 # Utilities
 requests>=2.32.0
 huggingface-hub>=0.25.0
+python-multipart>=0.0.9

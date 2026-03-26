@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from anthropic import Anthropic
+from openai import OpenAI
 
 from confidence import analyze_confidence
 
@@ -69,6 +70,7 @@ MAX_AUDIO_LENGTH_SECONDS = int(os.getenv("MAX_AUDIO_LENGTH_SECONDS", "30"))
 active_requests = 0
 shutting_down = False
 anthropic_client: Anthropic | None = None
+openai_client = None
 
 
 # ── Lifespan (Startup / Shutdown) ───────────────────────────
@@ -76,11 +78,11 @@ anthropic_client: Anthropic | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: Clients initialisieren. Shutdown: Graceful drain."""
-    global anthropic_client
+    global anthropic_client, openai_client
 
     logger.info("Voice Agent API starting up...")
 
-    # API Key pruefen
+    # Anthropic API Key pruefen
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         logger.warning(
@@ -89,6 +91,16 @@ async def lifespan(app: FastAPI):
     else:
         anthropic_client = Anthropic(api_key=api_key)
         logger.info("Anthropic Client initialisiert.")
+
+    # OpenAI API Key pruefen (fuer STT + TTS)
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not openai_key:
+        logger.warning(
+            "OPENAI_API_KEY nicht gesetzt. /stt und /tts Endpoints sind deaktiviert."
+        )
+    else:
+        openai_client = OpenAI(api_key=openai_key)
+        logger.info("OpenAI Client initialisiert (STT + TTS).")
     logger.info(f"Modell: {CLAUDE_MODEL}, Version: {APP_VERSION}")
 
     yield
@@ -344,3 +356,72 @@ async def analyze(request: AnalyzeRequest):
         model=CLAUDE_MODEL,
         duration_seconds=round(duration, 3),
     )
+
+
+# ── Voice Endpoints (STT + TTS) ────────────────────────────
+
+@app.post("/stt")
+async def speech_to_text(audio: UploadFile = File(...)):
+    """Whisper STT: Audio-Datei -> Text."""
+    if not openai_client:
+        raise HTTPException(status_code=503, detail="OpenAI Client nicht initialisiert. OPENAI_API_KEY setzen.")
+
+    allowed_types = {"audio/wav", "audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg", "application/octet-stream"}
+    if audio.content_type and audio.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail=f"Nicht unterstuetztes Audio-Format: {audio.content_type}")
+
+    try:
+        audio_bytes = await audio.read()
+        if len(audio_bytes) > MAX_AUDIO_LENGTH_SECONDS * 16000 * 2:
+            raise HTTPException(status_code=400, detail="Audio-Datei zu gross.")
+
+        # Temp-Datei fuer Whisper API
+        suffix = ".webm" if audio.content_type and "webm" in audio.content_type else ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            result = openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=open(tmp_path, "rb"),
+                language="de",
+            )
+        finally:
+            os.unlink(tmp_path)
+
+        logger.info(f"STT: {len(audio_bytes)} bytes -> '{result.text[:80]}'")
+        return {"text": result.text}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"STT Fehler: {e}")
+        raise HTTPException(status_code=502, detail="Fehler bei der Whisper API.")
+
+
+@app.post("/tts")
+async def text_to_speech(request: ConfidenceRequest):
+    """OpenAI TTS: Text -> Audio-Datei (MP3)."""
+    if not openai_client:
+        raise HTTPException(status_code=503, detail="OpenAI Client nicht initialisiert. OPENAI_API_KEY setzen.")
+
+    try:
+        response = openai_client.audio.speech.create(
+            model="tts-1",
+            voice="nova",
+            input=request.text,
+        )
+
+        audio_bytes = response.content
+        logger.info(f"TTS: '{request.text[:60]}' -> {len(audio_bytes)} bytes")
+
+        return StreamingResponse(
+            iter([audio_bytes]),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=speech.mp3"},
+        )
+
+    except Exception as e:
+        logger.error(f"TTS Fehler: {e}")
+        raise HTTPException(status_code=502, detail="Fehler bei der OpenAI TTS API.")
