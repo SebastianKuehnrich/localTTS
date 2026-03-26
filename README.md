@@ -8,14 +8,14 @@ Full Voice Conversation Agent und Vergleich verschiedener TTS/STT-Architekturen:
 ```bash
 python -m venv .venv
 .venv\Scripts\activate        # Windows
-pip install transformers torch soundfile sounddevice scipy numpy sentencepiece pandas pyarrow librosa matplotlib openai anthropic requests
+pip install -r requirements.txt
 ```
 
-Umgebungsvariablen setzen (fuer Voice Agent und API-basierte Skripte):
+Umgebungsvariablen setzen:
 
 ```bash
-set OPENAI_API_KEY=sk-...
-set ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env
+# API Keys in .env eintragen
 ```
 
 ## Skripte
@@ -29,6 +29,13 @@ set ANTHROPIC_API_KEY=sk-ant-...
 | `voice_agent_silver.py` | Silver: Full Voice Loop (ein Austausch) |
 | `voice_agent_gold.py` | Gold: Continuous Conversation (Endlos-Schleife) |
 | `voice_agent_diamond.py` | Diamond: Streaming TTS (satzweise Ausgabe) |
+
+### API Server (FastAPI)
+
+| Datei | Beschreibung |
+|---|---|
+| `app.py` | **FastAPI-App** — /health, /chat, /chat/stream, /confidence, /analyze |
+| `confidence.py` | Confidence Scoring Modul (Hedging-Analyse, Konfidenz-Bewertung) |
 
 ### TTS Vergleich
 
@@ -81,3 +88,62 @@ Siehe [TTS_ARCHITECTURES.md](TTS_ARCHITECTURES.md) fuer:
 - **SpeechT5** — Encoder-Decoder TTS mit Cross-Attention + HiFi-GAN Vocoder
 - **Bark** — 3x Decoder-Only (Semantic → Coarse → Fine), kein separater Vocoder
 - **OpenAI TTS** — Closed-Source API (braucht `OPENAI_API_KEY`)
+
+## API Server
+
+```bash
+# Lokal starten
+uvicorn app:app --reload --port 8000
+
+# Oder mit Docker
+docker compose up --build
+```
+
+### Endpoints
+
+| Methode | Pfad | Beschreibung |
+|---------|------|-------------|
+| GET | `/health` | Health Check (Status, Version, Services) |
+| POST | `/chat` | Chat mit Claude + Confidence Score |
+| POST | `/chat/stream` | Streaming Chat via SSE |
+| POST | `/confidence` | Confidence-Analyse eines beliebigen Texts |
+| POST | `/analyze` | CORTANA-Style Analyse mit Eskalations-Logik |
+| GET | `/docs` | Swagger UI (automatisch generiert) |
+
+### Beispiel
+
+```bash
+# Health Check
+curl http://localhost:8000/health
+
+# Chat
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Was ist Machine Learning?"}'
+
+# Confidence Analyse
+curl -X POST http://localhost:8000/confidence \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Vielleicht koennte es so sein."}'
+```
+
+## Docker Deployment
+
+```bash
+# Image bauen und starten
+docker compose up --build
+
+# Oder manuell
+docker build -t voice-agent .
+docker run -p 8000:8000 --env-file .env voice-agent
+```
+
+### Environment Variables
+
+| Variable | Beschreibung | Pflicht |
+|----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | Claude API Key | Ja |
+| `OPENAI_API_KEY` | OpenAI API Key (fuer Voice Agent) | Nein |
+| `CLAUDE_MODEL` | Claude Modell (default: claude-sonnet-4-20250514) | Nein |
+| `LOG_LEVEL` | Log-Level: debug/info/warning/error | Nein |
+| `MAX_AUDIO_LENGTH_SECONDS` | Max Audio-Laenge (default: 30) | Nein |
