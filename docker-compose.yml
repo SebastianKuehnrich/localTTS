@@ -1,0 +1,22 @@
+services:
+  voice-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - APP_VERSION=0.1.0
+      - LOG_LEVEL=info
+      - MAX_AUDIO_LENGTH_SECONDS=30
+      - CLAUDE_MODEL=claude-sonnet-4-20250514
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

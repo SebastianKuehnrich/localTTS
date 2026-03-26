@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+.git/
+.venv/
+venv/
+*.wav
+*.mp3
+*.png
+wandb/
+.idea/
+.vscode/
+.claude/
+*.egg-info/
+dist/
+build/
