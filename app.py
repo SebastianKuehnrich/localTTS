@@ -78,12 +78,13 @@ async def lifespan(app: FastAPI):
     logger.info("Voice Agent API starting up...")
 
     # API Key pruefen
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
         logger.warning(
             "ANTHROPIC_API_KEY nicht gesetzt. /chat und /analyze Endpoints sind deaktiviert."
         )
     else:
-        anthropic_client = Anthropic()
+        anthropic_client = Anthropic(api_key=api_key)
         logger.info("Anthropic Client initialisiert.")
     logger.info(f"Modell: {CLAUDE_MODEL}, Version: {APP_VERSION}")
 
