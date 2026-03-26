@@ -63,6 +63,7 @@ SYSTEM_PROMPT = os.getenv(
 )
 APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
 MAX_AUDIO_LENGTH_SECONDS = int(os.getenv("MAX_AUDIO_LENGTH_SECONDS", "30"))
+STT_MODEL = os.getenv("STT_MODEL", "whisper-small")  # "whisper-small" (lokal) oder "whisper-api" (OpenAI)
 
 
 # ── Globaler State ──────────────────────────────────────────
@@ -71,6 +72,7 @@ active_requests = 0
 shutting_down = False
 anthropic_client: Anthropic | None = None
 openai_client = None
+whisper_pipeline = None
 
 
 # ── Lifespan (Startup / Shutdown) ───────────────────────────
@@ -92,16 +94,34 @@ async def lifespan(app: FastAPI):
         anthropic_client = Anthropic(api_key=api_key)
         logger.info("Anthropic Client initialisiert.")
 
-    # OpenAI API Key pruefen (fuer STT + TTS)
+    # OpenAI API Key pruefen (fuer TTS + optionales API-STT)
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not openai_key:
         logger.warning(
-            "OPENAI_API_KEY nicht gesetzt. /stt und /tts Endpoints sind deaktiviert."
+            "OPENAI_API_KEY nicht gesetzt. /tts Endpoint ist deaktiviert."
         )
     else:
         openai_client = OpenAI(api_key=openai_key)
-        logger.info("OpenAI Client initialisiert (STT + TTS).")
-    logger.info(f"Modell: {CLAUDE_MODEL}, Version: {APP_VERSION}")
+        logger.info("OpenAI Client initialisiert (TTS).")
+
+    # Lokales Whisper laden
+    global whisper_pipeline
+    if STT_MODEL.startswith("whisper-") and STT_MODEL != "whisper-api":
+        try:
+            from transformers import pipeline as hf_pipeline
+            model_name = f"openai/{STT_MODEL}"
+            logger.info(f"Lade lokales Whisper-Modell: {model_name}...")
+            whisper_pipeline = hf_pipeline(
+                "automatic-speech-recognition",
+                model=model_name,
+                chunk_length_s=30,
+            )
+            logger.info(f"Whisper-Modell geladen: {model_name}")
+        except Exception as e:
+            logger.error(f"Whisper-Modell konnte nicht geladen werden: {e}")
+    elif STT_MODEL == "whisper-api":
+        logger.info("STT: OpenAI Whisper API")
+    logger.info(f"Modell: {CLAUDE_MODEL}, STT: {STT_MODEL}, Version: {APP_VERSION}")
 
     yield
 
@@ -217,6 +237,8 @@ async def health_check():
         "active_requests": active_requests,
         "services": {
             "llm": "claude-connected" if anthropic_client else "not-initialized",
+            "stt": f"{STT_MODEL}-loaded" if whisper_pipeline or (STT_MODEL == "whisper-api" and openai_client) else "not-initialized",
+            "tts": "openai-tts-connected" if openai_client else "not-initialized",
         },
     }
 
@@ -362,8 +384,10 @@ async def analyze(request: AnalyzeRequest):
 
 @app.post("/stt")
 async def speech_to_text(audio: UploadFile = File(...)):
-    """Whisper STT: Audio-Datei -> Text."""
-    if not openai_client:
+    """Whisper STT: Audio-Datei -> Text. Nutzt lokales whisper-small oder OpenAI API."""
+    if not whisper_pipeline and STT_MODEL != "whisper-api":
+        raise HTTPException(status_code=503, detail="Whisper-Modell nicht geladen.")
+    if STT_MODEL == "whisper-api" and not openai_client:
         raise HTTPException(status_code=503, detail="OpenAI Client nicht initialisiert. OPENAI_API_KEY setzen.")
 
     allowed_types = {"audio/wav", "audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg", "application/octet-stream"}
@@ -375,29 +399,42 @@ async def speech_to_text(audio: UploadFile = File(...)):
         if len(audio_bytes) > MAX_AUDIO_LENGTH_SECONDS * 16000 * 2:
             raise HTTPException(status_code=400, detail="Audio-Datei zu gross.")
 
-        # Temp-Datei fuer Whisper API
         suffix = ".webm" if audio.content_type and "webm" in audio.content_type else ".wav"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
 
         try:
-            result = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=open(tmp_path, "rb"),
-                language="de",
-            )
+            t_start = time.time()
+
+            if STT_MODEL == "whisper-api":
+                # OpenAI Whisper API
+                result = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=open(tmp_path, "rb"),
+                    language="de",
+                )
+                text = result.text
+            else:
+                # Lokales Whisper-Modell
+                result = whisper_pipeline(
+                    tmp_path,
+                    generate_kwargs={"language": "de"},
+                )
+                text = result["text"]
+
+            duration = time.time() - t_start
         finally:
             os.unlink(tmp_path)
 
-        logger.info(f"STT: {len(audio_bytes)} bytes -> '{result.text[:80]}'")
-        return {"text": result.text}
+        logger.info(f"STT ({STT_MODEL}): {len(audio_bytes)} bytes -> '{text[:80]}' ({duration:.1f}s)")
+        return {"text": text, "model": STT_MODEL, "duration_seconds": round(duration, 3)}
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"STT Fehler: {e}")
-        raise HTTPException(status_code=502, detail="Fehler bei der Whisper API.")
+        raise HTTPException(status_code=502, detail=f"Fehler bei Whisper ({STT_MODEL}).")
 
 
 @app.post("/tts")
