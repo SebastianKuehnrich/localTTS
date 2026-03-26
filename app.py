@@ -15,8 +15,11 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
+from pathlib import Path
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from anthropic import Anthropic
 
@@ -111,6 +114,20 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+# Statische Dateien (UI)
+STATIC_DIR = Path(__file__).parent / "static"
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/")
+async def root():
+    """Liefert die Web-UI aus."""
+    index_path = STATIC_DIR / "index.html"
+    if index_path.is_file():
+        return FileResponse(str(index_path))
+    return JSONResponse({"message": "Voice Agent API", "docs": "/docs"})
 
 
 # ── Middleware: Request Tracking + Shutdown Guard ───────────
