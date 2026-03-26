@@ -115,6 +115,7 @@ async def lifespan(app: FastAPI):
                 "automatic-speech-recognition",
                 model=model_name,
                 chunk_length_s=30,
+                ignore_warning=True,
             )
             logger.info(f"Whisper-Modell geladen: {model_name}")
         except Exception as e:
