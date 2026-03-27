@@ -20,7 +20,10 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+import base64
+
 from pydantic import BaseModel, Field
+from typing import Optional
 from anthropic import Anthropic
 from openai import OpenAI
 
@@ -65,14 +68,21 @@ APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
 MAX_AUDIO_LENGTH_SECONDS = int(os.getenv("MAX_AUDIO_LENGTH_SECONDS", "30"))
 STT_MODEL = os.getenv("STT_MODEL", "whisper-small")  # "whisper-small" (lokal) oder "whisper-api" (OpenAI)
 
+# TTS-Stimmen
+AVAILABLE_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+CURRENT_VOICE = os.getenv("TTS_VOICE", "nova")
+TTS_MODEL = "tts-1"
+
 
 # ── Globaler State ──────────────────────────────────────────
 
+START_TIME = datetime.now(timezone.utc)
 active_requests = 0
 shutting_down = False
 anthropic_client: Anthropic | None = None
 openai_client = None
 whisper_pipeline = None
+REQUEST_LOG: list[dict] = []
 
 
 # ── Lifespan (Startup / Shutdown) ───────────────────────────
@@ -188,6 +198,17 @@ async def track_requests(request, call_next):
             f"{request.method} {request.url.path} -> {response.status_code} ({duration:.2f}s)"
         )
 
+        # Request-Log fuer /logs Endpoint
+        REQUEST_LOG.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": round(duration * 1000, 1),
+        })
+        if len(REQUEST_LOG) > 100:
+            REQUEST_LOG.pop(0)
+
 
 # ── Request/Response Modelle ────────────────────────────────
 
@@ -208,6 +229,12 @@ class ChatResponse(BaseModel):
 class ConfidenceRequest(BaseModel):
     """Request fuer den /confidence Endpoint."""
     text: str = Field(..., min_length=1, max_length=5000, description="Text zum Analysieren")
+
+
+class ChatWithVoiceRequest(BaseModel):
+    """Request fuer den /chat-with-voice Endpoint."""
+    message: str = Field(..., min_length=1, max_length=2000, description="User-Nachricht")
+    voice: Optional[str] = Field(default="nova", description="TTS-Stimme (alloy, echo, fable, onyx, nova, shimmer)")
 
 
 class AnalyzeRequest(BaseModel):
@@ -231,16 +258,21 @@ class AnalyzeResponse(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health Check — wird von Docker/Railway regelmaessig abgefragt."""
+    uptime = (datetime.now(timezone.utc) - START_TIME).total_seconds()
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "uptime_seconds": round(uptime, 2),
         "version": APP_VERSION,
+        "environment": os.getenv("ENVIRONMENT", "development"),
         "active_requests": active_requests,
         "services": {
             "llm": "claude-connected" if anthropic_client else "not-initialized",
             "stt": f"{STT_MODEL}-loaded" if whisper_pipeline or (STT_MODEL == "whisper-api" and openai_client) else "not-initialized",
             "tts": "openai-tts-connected" if openai_client else "not-initialized",
         },
+        "endpoints": ["/health", "/chat", "/chat/stream", "/stream", "/voices",
+                      "/chat-with-voice", "/confidence", "/analyze", "/stt", "/tts", "/logs"],
     }
 
 
@@ -381,6 +413,137 @@ async def analyze(request: AnalyzeRequest):
     )
 
 
+# ── Voices + Chat-with-Voice ───────────────────────────────
+
+@app.get("/voices")
+async def voices():
+    """Listet alle verfuegbaren TTS-Stimmen auf."""
+    return {
+        "available": AVAILABLE_VOICES,
+        "current": CURRENT_VOICE,
+        "model": TTS_MODEL,
+        "info": {
+            "alloy": "neutral, balanced",
+            "echo": "warm, maennlich",
+            "fable": "britisch, erzaehlend",
+            "onyx": "tief, autoritaer",
+            "nova": "energisch, weiblich",
+            "shimmer": "sanft, weiblich",
+        },
+    }
+
+
+@app.post("/chat-with-voice")
+async def chat_with_voice(request: ChatWithVoiceRequest):
+    """
+    Chat mit Claude + TTS Audio-Ausgabe.
+    Gibt Text-Antwort und Base64-kodiertes Audio zurueck.
+    """
+    if not anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic Client nicht initialisiert.")
+    if not openai_client:
+        raise HTTPException(status_code=503, detail="OpenAI Client nicht initialisiert. OPENAI_API_KEY setzen.")
+
+    # Voice validieren
+    voice = request.voice if request.voice in AVAILABLE_VOICES else CURRENT_VOICE
+
+    t_start = time.time()
+
+    # Claude Agent
+    messages = [{"role": "user", "content": request.message}]
+    try:
+        response = anthropic_client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=500,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        )
+    except Exception as e:
+        logger.error(f"Claude API Fehler: {e}")
+        raise HTTPException(status_code=502, detail="Fehler bei der Claude API.")
+
+    text_response = response.content[0].text
+
+    # TTS mit gewaehlter Stimme
+    try:
+        tts_response = openai_client.audio.speech.create(
+            model=TTS_MODEL,
+            voice=voice,
+            input=text_response,
+        )
+        audio_bytes = tts_response.content
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as e:
+        logger.error(f"TTS Fehler: {e}")
+        raise HTTPException(status_code=502, detail="Fehler bei der OpenAI TTS API.")
+
+    duration = time.time() - t_start
+    confidence = analyze_confidence(text_response)
+
+    logger.info(
+        f"Chat-with-Voice: voice={voice}, {len(text_response)} Zeichen, "
+        f"audio={len(audio_bytes)} bytes ({duration:.1f}s)"
+    )
+
+    return {
+        "response": text_response,
+        "voice_used": voice,
+        "audio_format": "mp3",
+        "audio_base64": audio_base64,
+        "audio_size_bytes": len(audio_bytes),
+        "confidence": asdict(confidence),
+        "duration_seconds": round(duration, 3),
+    }
+
+
+# ── SSE Stream Endpoint ───────────────────────────────────
+
+@app.post("/stream")
+async def stream_chat_alias(request: ChatRequest):
+    """
+    Streaming Chat via SSE — Alias fuer /chat/stream.
+    Gibt Tokens einzeln via Server-Sent Events zurueck.
+    """
+    if not anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic Client nicht initialisiert.")
+
+    messages = list(request.history)
+    messages.append({"role": "user", "content": request.message})
+
+    async def generate():
+        full_response = ""
+        try:
+            with anthropic_client.messages.stream(
+                model=CLAUDE_MODEL,
+                max_tokens=500,
+                system=SYSTEM_PROMPT,
+                messages=messages,
+            ) as stream:
+                for text in stream.text_stream:
+                    full_response += text
+                    yield f"data: {json.dumps({'token': text})}\n\n"
+
+            confidence = analyze_confidence(full_response)
+            yield f"data: {json.dumps({'done': True, 'full_response': full_response, 'confidence': asdict(confidence)})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming Fehler: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Request Logs ──────────────────────────────────────────
+
+@app.get("/logs")
+async def get_logs():
+    """Zeigt die letzten 20 Requests mit Timing-Informationen."""
+    return {
+        "total_requests": len(REQUEST_LOG),
+        "logs": REQUEST_LOG[-20:],
+    }
+
+
 # ── Voice Endpoints (STT + TTS) ────────────────────────────
 
 @app.post("/stt")
@@ -438,16 +601,24 @@ async def speech_to_text(audio: UploadFile = File(...)):
         raise HTTPException(status_code=502, detail=f"Fehler bei Whisper ({STT_MODEL}).")
 
 
+class TTSRequest(BaseModel):
+    """Request fuer den /tts Endpoint."""
+    text: str = Field(..., min_length=1, max_length=5000, description="Text zum Vorlesen")
+    voice: Optional[str] = Field(default="nova", description="TTS-Stimme")
+
+
 @app.post("/tts")
-async def text_to_speech(request: ConfidenceRequest):
-    """OpenAI TTS: Text -> Audio-Datei (MP3)."""
+async def text_to_speech(request: TTSRequest):
+    """OpenAI TTS: Text -> Audio-Datei (MP3). Stimme waehlbar."""
     if not openai_client:
         raise HTTPException(status_code=503, detail="OpenAI Client nicht initialisiert. OPENAI_API_KEY setzen.")
 
+    voice = request.voice if request.voice in AVAILABLE_VOICES else CURRENT_VOICE
+
     try:
         response = openai_client.audio.speech.create(
-            model="tts-1",
-            voice="nova",
+            model=TTS_MODEL,
+            voice=voice,
             input=request.text,
         )
 
