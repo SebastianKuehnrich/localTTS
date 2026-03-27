@@ -473,3 +473,70 @@ Gemessene Zeiten fuer 5 Gespraeche mit dem Streaming Voice Agent:
 - Voice Activity Detection (VAD) statt fixer 5s-Aufnahme wuerde die Gesamtzeit reduzieren.
 - Parallele TTS-Generierung (naechsten Satz generieren waehrend aktueller abgespielt wird).
 - Lokales Whisper statt API wuerde Netzwerk-Latenz eliminieren (aber CPU-Zeit erhoehen).
+
+---
+
+## 10. Deployment
+
+### Pipeline
+
+```
+GitHub Repo
+     |
+     | git push
+     v
+Railway (Build)
+     |
+     | docker build (Dockerfile)
+     v
+Docker Image
+     |
+     | docker run
+     v
+Container (port 8000/8080)
+     |
+     | railway domain
+     v
+Public URL: https://localtts-production.up.railway.app
+```
+
+### Endpoints
+
+| Endpoint | Methode | Beschreibung |
+|----------|---------|--------------|
+| /health | GET | Status + Uptime + Services. Fuer Monitoring und Healthchecks. |
+| /chat | POST | Text rein, Claude-Antwort + Confidence Score raus. |
+| /chat/stream | POST | Streaming Chat via SSE. Token fuer Token. |
+| /stream | POST | SSE-Streaming (Alias). Token fuer Token mit `data: {"token": "..."}`. |
+| /voices | GET | Verfuegbare TTS-Stimmen auflisten (alloy, echo, fable, onyx, nova, shimmer). |
+| /chat-with-voice | POST | Chat + TTS. Antwort als Text + Base64-Audio. |
+| /confidence | POST | Confidence-Analyse eines beliebigen Texts. |
+| /analyze | POST | CORTANA-Style Analyse mit Eskalations-Logik. |
+| /stt | POST | Speech-to-Text via Whisper (lokal oder API). |
+| /tts | POST | Text-to-Speech via OpenAI TTS (Stimme waehlbar). |
+| /logs | GET | Letzte 20 Requests mit Timing (Method, Path, Status, Duration). |
+
+### Environment Variables
+
+| Variable | Wofuer | Wo gesetzt |
+|----------|--------|------------|
+| ANTHROPIC_API_KEY | Claude API Zugang | Railway Variables |
+| OPENAI_API_KEY | TTS + optionales STT API Zugang | Railway Variables |
+| ENVIRONMENT | development / production | Railway Variables |
+| PORT | Server-Port (Railway setzt das automatisch) | Railway (automatisch) |
+| CLAUDE_MODEL | Claude Modell (default: claude-sonnet-4-20250514) | Railway Variables |
+| STT_MODEL | whisper-small (lokal) oder whisper-api | Railway Variables |
+| LOG_LEVEL | debug / info / warning / error | Railway Variables |
+
+### Warum Docker
+
+- **Isolation:** Der Container hat seine eigene Python-Version, eigene Dependencies.
+  Kein "aber bei mir geht es" mehr.
+- **Reproduzierbarkeit:** Dockerfile ist die einzige Wahrheit. Was drin steht, wird gebaut.
+  Egal ob auf dem Laptop oder auf Railway.
+- **Portabilitaet:** Railway, AWS, Google Cloud, eigener Server — egal.
+  Docker laeuft ueberall gleich.
+- **Kein Dependency-Chaos:** pip install auf dem Host-System kann alles kaputt machen.
+  Im Container ist es isoliert.
+- **Security:** .env mit API-Keys bleibt draussen (.dockerignore).
+  Keys kommen via Environment Variables vom Hosting-Provider.
