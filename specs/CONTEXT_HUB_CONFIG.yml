@@ -1,0 +1,119 @@
+# voice_agent_context_hub.yml
+# ContextHub-Konfiguration fuer den Voice Agent mit Confidence Scoring.
+# Definiert welche Wissensquellen bei welcher User-Anfrage geladen werden.
+
+name: voice-agent-cortana
+description: Voice Agent mit Whisper STT, Claude LLM, OpenAI TTS und Confidence Scoring
+
+# Diese Dateien werden IMMER geladen
+always_include:
+  - app.py
+  - confidence.py
+  - requirements.txt
+
+# Regeln: Trigger -> Dateien + Mindest-Confidence
+rules:
+  audio_tts:
+    trigger: "tts|voice|audio|speech|stimme|sprechen|lautsprecher"
+    files:
+      - app.py
+      - bark_tts.py
+      - speaker_compare.py
+    min_confidence: 0.5
+    note: "TTS-Fragen sind technisch unkritisch — niedriger Threshold"
+
+  audio_stt:
+    trigger: "whisper|stt|transkription|sprache.zu.text|mikrofon|aufnahme"
+    files:
+      - app.py
+      - whisper_compare.py
+    min_confidence: 0.5
+    note: "STT-Fragen sind technisch unkritisch — niedriger Threshold"
+
+  deployment:
+    trigger: "deploy|docker|railway|server|container|image"
+    files:
+      - Dockerfile
+      - docker-compose.yml
+      - .dockerignore
+    min_confidence: 0.7
+    note: "Deployment betrifft Production — mittlerer Threshold"
+
+  streaming:
+    trigger: "stream|sse|echtzeit|live|token"
+    files:
+      - app.py
+      - main.py
+    min_confidence: 0.5
+    note: "Streaming ist gut dokumentiert — niedriger Threshold"
+
+  context_management:
+    trigger: "history|kontext|context|memory|gespraech|window|zusammenfassung"
+    files:
+      - sliding_window.py
+    min_confidence: 0.6
+    note: "Context Management ist komplex — mittlerer Threshold"
+
+  confidence_analysis:
+    trigger: "confidence|konfidenz|score|bewertung|eskalat|analyse"
+    files:
+      - confidence.py
+      - app.py
+    min_confidence: 0.7
+    note: "Confidence-Fragen betreffen die Kernlogik — hoeherer Threshold"
+
+  benchmarking:
+    trigger: "benchmark|vergleich|latenz|performance|test"
+    files:
+      - tts_benchmark.py
+      - whisper_compare.py
+      - mel_visualize.py
+    min_confidence: 0.5
+    note: "Benchmarks sind explorativ — niedriger Threshold"
+
+  architecture:
+    trigger: "architektur|pipeline|diagramm|design|dokumentation"
+    files:
+      - TTS_ARCHITECTURES.md
+      - CLAUDE.md
+      - README.md
+    min_confidence: 0.4
+    note: "Dokumentations-Fragen sind niedrig-riskant"
+
+  medical_queries:
+    trigger: "medizin|gesundheit|symptom|diagnose|arzt|krankheit"
+    files: []
+    min_confidence: 0.9
+    note: "Medizinische Fragen brauchen hoechste Confidence — kein Wissen vorhanden"
+
+  legal_queries:
+    trigger: "recht|gesetz|vertrag|klage|anwalt|haftung"
+    files: []
+    min_confidence: 0.95
+    note: "Rechtliche Fragen duerfen fast nie direkt beantwortet werden"
+
+# Diese Dateien werden NIEMALS in den Context geladen
+exclude:
+  - "**/.env"
+  - "**/.env.*"
+  - "**/secrets/**"
+  - "**/__pycache__/**"
+  - "**/.git/**"
+  - "**/.venv/**"
+  - "**/*.wav"
+  - "**/*.mp3"
+  - "**/*.png"
+
+# Eskalations-Logik
+escalation:
+  below_min_confidence: "route_to_human"
+  no_matching_rule: "use_always_include_with_disclaimer"
+  multiple_rules_match: "use_highest_min_confidence"
+  empty_files_list: "eskalieren_keine_wissensquelle"
+
+# Sliding Window Konfiguration
+sliding_window:
+  max_recent: 10
+  summary_threshold: 20
+  summary_max_words: 200
+  fallback_on_error: "drop_oldest_half"
