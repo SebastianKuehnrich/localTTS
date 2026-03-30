@@ -28,6 +28,8 @@ from anthropic import Anthropic
 from openai import OpenAI
 
 from confidence import analyze_confidence
+from sliding_window import SlidingContextWindow
+from context_hub import voice_hub
 
 
 # ── Structured JSON Logging ─────────────────────────────────
@@ -82,6 +84,7 @@ shutting_down = False
 anthropic_client: Anthropic | None = None
 openai_client = None
 whisper_pipeline = None
+context_window: SlidingContextWindow | None = None
 REQUEST_LOG: list[dict] = []
 
 
@@ -103,6 +106,15 @@ async def lifespan(app: FastAPI):
     else:
         anthropic_client = Anthropic(api_key=api_key)
         logger.info("Anthropic Client initialisiert.")
+
+        global context_window
+        context_window = SlidingContextWindow(
+            client=anthropic_client,
+            model=CLAUDE_MODEL,
+            max_recent=10,
+            summary_threshold=20,
+        )
+        logger.info("SlidingContextWindow initialisiert (max_recent=10, threshold=20).")
 
     # OpenAI API Key pruefen (fuer TTS + optionales API-STT)
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -279,35 +291,43 @@ async def health_check():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Chat mit Claude Agent.
+    Chat mit Claude Agent + SlidingContextWindow.
     Sendet eine Nachricht, erhaelt Antwort mit Confidence Score.
+    Alte Messages werden automatisch zusammengefasst.
     """
-    if not anthropic_client:
+    if not anthropic_client or not context_window:
         raise HTTPException(status_code=503, detail="Anthropic Client nicht initialisiert.")
 
     t_start = time.time()
 
-    messages = list(request.history)
-    messages.append({"role": "user", "content": request.message})
+    # Message ins SlidingWindow eintragen
+    context_window.add_message("user", request.message)
+
+    # Context bauen (mit Zusammenfassung falls vorhanden)
+    system_prompt, recent_messages = context_window.build_context(SYSTEM_PROMPT)
 
     try:
         response = anthropic_client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=500,
-            system=SYSTEM_PROMPT,
-            messages=messages,
+            system=system_prompt,
+            messages=recent_messages,
         )
     except Exception as e:
         logger.error(f"Claude API Fehler: {e}")
         raise HTTPException(status_code=502, detail="Fehler bei der Claude API.")
 
     assistant_text = response.content[0].text
+    context_window.add_message("assistant", assistant_text)
+
     confidence = analyze_confidence(assistant_text)
     duration = time.time() - t_start
+    stats = context_window.get_stats()
 
     logger.info(
         f"Chat: {len(request.message)} Zeichen -> {len(assistant_text)} Zeichen, "
-        f"Confidence: {confidence.score} ({confidence.label})"
+        f"Confidence: {confidence.score} ({confidence.label}), "
+        f"Context: {stats['in_context']}/{stats['total_messages']} messages"
     )
 
     return ChatResponse(
@@ -321,14 +341,15 @@ async def chat(request: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """
-    Streaming Chat mit Claude Agent.
+    Streaming Chat mit Claude Agent + SlidingContextWindow.
     Gibt Tokens via Server-Sent Events (SSE) zurueck.
     """
-    if not anthropic_client:
+    if not anthropic_client or not context_window:
         raise HTTPException(status_code=503, detail="Anthropic Client nicht initialisiert.")
 
-    messages = list(request.history)
-    messages.append({"role": "user", "content": request.message})
+    # Message ins SlidingWindow eintragen
+    context_window.add_message("user", request.message)
+    system_prompt, recent_messages = context_window.build_context(SYSTEM_PROMPT)
 
     async def generate():
         full_response = ""
@@ -336,13 +357,14 @@ async def chat_stream(request: ChatRequest):
             with anthropic_client.messages.stream(
                 model=CLAUDE_MODEL,
                 max_tokens=500,
-                system=SYSTEM_PROMPT,
-                messages=messages,
+                system=system_prompt,
+                messages=recent_messages,
             ) as stream:
                 for text in stream.text_stream:
                     full_response += text
                     yield f"data: {json.dumps({'type': 'token', 'text': text})}\n\n"
 
+            context_window.add_message("assistant", full_response)
             confidence = analyze_confidence(full_response)
             yield f"data: {json.dumps({'type': 'done', 'confidence': asdict(confidence)})}\n\n"
 
@@ -531,6 +553,41 @@ async def stream_chat_alias(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Context Window Stats ─────────────────────────────────
+
+@app.get("/context")
+async def context_stats():
+    """Zeigt den aktuellen Zustand des SlidingContextWindow."""
+    if not context_window:
+        return {"status": "not-initialized", "message": "Kein Anthropic Client."}
+
+    stats = context_window.get_stats()
+    return {
+        "status": "active",
+        "window": stats,
+        "config": {
+            "max_recent": context_window.max_recent,
+            "summary_threshold": context_window.summary_threshold,
+        },
+    }
+
+
+@app.post("/context/reset")
+async def context_reset():
+    """Setzt das SlidingContextWindow zurueck (neue Session)."""
+    if not context_window:
+        raise HTTPException(status_code=503, detail="Kein Anthropic Client.")
+    context_window.reset()
+    return {"status": "reset", "message": "Conversation History zurueckgesetzt."}
+
+
+@app.get("/context/hub")
+async def context_hub_resolve(task: str = ""):
+    """ContextHub: Welche Dateien sind fuer einen Task relevant?"""
+    result = voice_hub.resolve(task)
+    return result
 
 
 # ── Request Logs ──────────────────────────────────────────
